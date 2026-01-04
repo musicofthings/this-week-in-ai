@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchLatestAINews, HISTORICAL_REPORTS } from './services/gemini';
 import { NewsContent, NewsArticle, GroundingSource } from './types';
@@ -114,9 +113,30 @@ const App: React.FC = () => {
       }
     } catch (err: any) {
       console.error("Sync error:", err.message);
-      saveToCache(null); 
-      if (!news || news.articles.length <= HISTORICAL_REPORTS.length) {
+      // Attempt to load from cache even on error
+      const cachedRaw = localStorage.getItem(STORAGE_KEY);
+      
+      // UX Improvement: Only show error if we really have NO data to show.
+      // If we have cached data, just show that and suppress the red alert.
+      if (cachedRaw) {
+        try {
+          // Refresh the cache view (ensure we are showing latest stored data)
+          const cached = JSON.parse(cachedRaw);
+          if (cached.articles.length > HISTORICAL_REPORTS.length) {
+            console.warn("Using cached data due to API failure.");
+            setNews(cached);
+          } else {
+             // We only have hardcoded history, show error
+             setError(`Sync Alert: ${err.message}. Showing archive.`);
+             saveToCache(null);
+          }
+        } catch (e) {
+          setError(`Sync Alert: ${err.message}. Showing archive.`);
+          saveToCache(null);
+        }
+      } else {
          setError(`Sync Alert: ${err.message}. Showing archive.`);
+         saveToCache(null); 
       }
     } finally {
       setLoading(false);

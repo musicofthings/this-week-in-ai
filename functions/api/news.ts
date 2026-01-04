@@ -37,16 +37,29 @@ export async function onRequest(context) {
     });
   }
 
-  // FIX: Implement Cloudflare Cache API
+  // FIX: Implement Cloudflare Cache API with Normalized Key
+  // We explicitly create a GET request object without passing the original 'request'
+  // headers. This prevents browser 'Cache-Control: max-age=0' (hard refresh)
+  // from bypassing our cache and hitting the Gemini quota.
   const cacheUrl = new URL(request.url);
-  const cacheKey = new Request(cacheUrl.toString(), request);
+  const cacheKey = new Request(cacheUrl.toString(), {
+    method: 'GET',
+  });
+  
   // Fix: Property 'default' does not exist on type 'CacheStorage'.
   const cache = (caches as any).default;
   
   // Try to find a cached response
   let response = await cache.match(cacheKey);
   if (response) {
-    return response;
+    // Add a header so we know it was a cache hit in DevTools
+    const newHeaders = new Headers(response.headers);
+    newHeaders.set('X-Worker-Cache', 'HIT');
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: newHeaders
+    });
   }
 
   const ai = new GoogleGenAI({ apiKey: API_KEY });
@@ -111,7 +124,8 @@ export async function onRequest(context) {
       headers: {
         "Content-Type": "application/json",
         // Cache for 1 hour (3600 seconds)
-        "Cache-Control": "public, max-age=3600"
+        "Cache-Control": "public, max-age=3600",
+        "X-Worker-Cache": "MISS"
       }
     });
 
@@ -121,8 +135,12 @@ export async function onRequest(context) {
     return response;
 
   } catch (error: any) {
+    // If rate limited, return 429 so client knows not to retry immediately
+    const isRateLimit = error.message.includes('429') || error.message.includes('quota') || error.status === 429;
+    const status = isRateLimit ? 429 : 500;
+    
     return new Response(JSON.stringify({ error: error.message }), {
-      status: 200, headers: { "Content-Type": "application/json" }
+      status: status, headers: { "Content-Type": "application/json" }
     });
   }
 }

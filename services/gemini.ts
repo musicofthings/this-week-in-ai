@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { NewsContent, NewsArticle, GroundingSource } from "../types";
 
@@ -185,18 +184,36 @@ export const fetchLatestAINews = async (): Promise<NewsContent> => {
   // 1. Attempt Server Fetch
   try {
     const response = await fetch('/api/news');
+    
     if (response.ok) {
       const data = await response.json();
       if (!data.error) {
         return data;
       }
       console.warn("Backend error:", data.error);
+      
+      // CRITICAL FIX: If backend says 429/Quota, DO NOT retry on client.
+      // Both environments likely use the same API Project/Quota.
+      // Retrying locks the account longer.
+      const errMsg = (data.error || "").toLowerCase();
+      if (errMsg.includes("429") || errMsg.includes("quota") || errMsg.includes("exhausted")) {
+        throw new Error("Daily Briefing Capacity Reached. Please try again in 1 hour.");
+      }
+      
       useClientFallback = true;
     } else {
+      // If status is 429, Stop.
+      if (response.status === 429) {
+        throw new Error("Daily Briefing Capacity Reached. Please try again in 1 hour.");
+      }
       console.warn(`Backend status ${response.status}. Switching to client mode.`);
       useClientFallback = true;
     }
-  } catch (error) {
+  } catch (error: any) {
+    // If the error was explicitly thrown above (Quota), rethrow it.
+    if (error.message.includes("Capacity Reached")) {
+      throw error;
+    }
     console.warn("Backend unavailable. Switching to client mode.");
     useClientFallback = true;
   }
@@ -206,9 +223,15 @@ export const fetchLatestAINews = async (): Promise<NewsContent> => {
   }
 
   // 2. Client-Side Fallback
-  // Fix: Use process.env.API_KEY directly as per guidelines. 
-  // Vite replaces process.env.API_KEY with the actual key string at build time.
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  // Checks VITE_API_KEY first (Cloudflare Best Practice), then standard API_KEY
+  // @ts-ignore
+  const apiKey = import.meta.env?.VITE_API_KEY || (typeof process !== 'undefined' && process.env?.API_KEY);
+
+  if (!apiKey) {
+    throw new Error("API Key not found. Set VITE_API_KEY in Cloudflare Pages Environment Variables.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
   const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
   const prompt = `Current Date: ${dateStr}. 
@@ -266,6 +289,10 @@ export const fetchLatestAINews = async (): Promise<NewsContent> => {
 
   } catch (error: any) {
     console.error("Client Generation Error:", error);
+    // Improve Client Error Message
+    if (error.message.includes("429") || error.message.includes("quota")) {
+      throw new Error("Daily Briefing Capacity Reached. Please try again later.");
+    }
     throw new Error(error.message);
   }
 };
