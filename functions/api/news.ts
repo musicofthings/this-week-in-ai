@@ -32,15 +32,22 @@ export async function onRequest(context) {
   const API_KEY = env.API_KEY || env.GEMINI_API_KEY;
 
   if (!API_KEY) {
-    return new Response(JSON.stringify({ error: "API Key missing." }), {
-      status: 500, headers: { "Content-Type": "application/json" }
+    return new Response(JSON.stringify({ error: "API Key missing in server configuration." }), {
+      status: 200, headers: { "Content-Type": "application/json" }
     });
   }
 
   const ai = new GoogleGenAI({ apiKey: API_KEY });
   const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
-  const prompt = `Current Date: ${dateStr}. Identify 12 significant AI developments from the last 30 days. Content MUST be at least 4 deep analytical sentences each. Categories: RESEARCH, MODELS, TOOLS, STARTUPS, ENTERPRISE, POLICY, HARDWARE, ROBOTICS.`;
+  // Upgraded prompt to match client-side quality standards
+  const prompt = `Current Date: ${dateStr}. 
+    Goal: Identify 15 significant AI developments from the LAST 30 DAYS to populate our news categories.
+    Constraints: 
+    - Exactly 15 objects in 'articles'.
+    - 'content' MUST be a long analytical paragraph (at least 5-6 sentences, approx 600-800 characters) providing deep technical insight.
+    - Diversity: MUST provide at least 2 articles for EACH category: RESEARCH, MODELS, TOOLS, STARTUPS, ENTERPRISE, POLICY, HARDWARE, and ROBOTICS.
+    - 'sourceUrl' must be a valid direct URL.`;
 
   try {
     const response = await ai.models.generateContent({

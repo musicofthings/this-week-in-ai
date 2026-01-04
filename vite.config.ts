@@ -2,16 +2,16 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
-  // Use '.' to refer to the current directory, avoiding TypeScript error with process.cwd()
+  // Use '.' to refer to the current directory
   const env = loadEnv(mode, '.', '');
   
-  // Safely retrieve the API key from the loaded env or the process env
-  // This prioritizes the variable set in Cloudflare Dashboard
+  // Prioritize environment variables, falling back to empty string to prevent crashes
   const apiKey = env.API_KEY || process.env.API_KEY || "";
 
   return {
     plugins: [react()],
     define: {
+      // Inject the API key into the client bundle safely
       'process.env.API_KEY': JSON.stringify(apiKey)
     },
     build: {
@@ -21,6 +21,20 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: 3000,
+      // Optional: Proxy /api to local wrangler dev if you run it
+      proxy: {
+        '/api': {
+          target: 'http://127.0.0.1:8788',
+          changeOrigin: true,
+          secure: false,
+          ws: true,
+          configure: (proxy, _options) => {
+            proxy.on('error', (err, _req, _res) => {
+              console.log('Proxy error', err);
+            });
+          }
+        }
+      }
     }
   };
 });

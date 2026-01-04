@@ -151,39 +151,72 @@ export const HISTORICAL_REPORTS: NewsArticle[] = [
 const extractJson = (text: string) => {
   let t = text.trim();
   t = t.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  
   const start = t.indexOf('{');
-  if (start === -1) throw new Error("JSON start not found.");
+  if (start === -1) throw new Error("Format error");
   let jsonStr = t.substring(start);
-
+  
   try {
     return JSON.parse(jsonStr);
   } catch (e) {
-    console.warn("JSON truncation detected, attempting reconstruction...");
-    const lastClosingBrace = jsonStr.lastIndexOf('}');
-    if (lastClosingBrace === -1) throw new Error("Connection interrupted.");
-    let partial = jsonStr.substring(0, lastClosingBrace + 1).trim();
+    const lastBrace = jsonStr.lastIndexOf('}');
+    if (lastBrace === -1) throw new Error("Briefing interrupted.");
+    
+    let partial = jsonStr.substring(0, lastBrace + 1);
     if (partial.includes('"articles"') && !partial.endsWith(']}')) {
       partial = partial.replace(/,\s*$/, '') + ']}';
     }
+    
     try {
       return JSON.parse(partial);
     } catch (innerE) {
-      throw new Error("Unable to reconstruct intelligence feed.");
+      throw new Error("Briefing corrupted.");
     }
   }
 };
 
 export const fetchLatestAINews = async (): Promise<NewsContent> => {
+  // Strategy: Try Serverless Backend first (Cloudflare). 
+  // If it fails (404/Network), Fallback to Client-Side (GitHub Pages / Local).
+
+  let useClientFallback = false;
+
+  // 1. Attempt Server Fetch
   try {
-    const apiKey = process.env.API_KEY;
-    if (!apiKey) {
-      throw new Error("API_KEY not set in Environment Variables.");
+    const response = await fetch('/api/news');
+    if (response.ok) {
+      const data = await response.json();
+      if (!data.error) {
+        return data;
+      }
+      console.warn("Backend error:", data.error);
+      useClientFallback = true;
+    } else {
+      console.warn(`Backend status ${response.status}. Switching to client mode.`);
+      useClientFallback = true;
     }
+  } catch (error) {
+    console.warn("Backend unavailable. Switching to client mode.");
+    useClientFallback = true;
+  }
 
-    const ai = new GoogleGenAI({ apiKey });
-    const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  if (!useClientFallback) {
+      throw new Error("Unknown error during sync.");
+  }
 
-    const prompt = `Current Date: ${dateStr}. 
+  // 2. Client-Side Fallback
+  // Safely retrieve API Key from injected process.env or Vite env
+  // @ts-ignore
+  const apiKey = (typeof process !== 'undefined' && process.env?.API_KEY) || import.meta.env?.VITE_API_KEY;
+
+  if (!apiKey) {
+    throw new Error("API Key not found. Please set API_KEY in your environment variables.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+  const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  const prompt = `Current Date: ${dateStr}. 
     Goal: Identify 15 significant AI developments from the LAST 30 DAYS to populate our news categories.
     Constraints: 
     - Exactly 15 objects in 'articles'.
@@ -191,7 +224,8 @@ export const fetchLatestAINews = async (): Promise<NewsContent> => {
     - Diversity: MUST provide at least 2 articles for EACH category: RESEARCH, MODELS, TOOLS, STARTUPS, ENTERPRISE, POLICY, HARDWARE, and ROBOTICS.
     - 'sourceUrl' must be a valid direct URL.`;
 
-    const result = await ai.models.generateContent({
+  try {
+    const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
       config: {
@@ -225,18 +259,18 @@ export const fetchLatestAINews = async (): Promise<NewsContent> => {
       },
     });
 
-    const rawText = result.text || "";
-
+    const rawText = response.text || "";
     const data = extractJson(rawText);
+    
     return {
-      articles: Array.isArray(data.articles) ? data.articles : [],
-      sources: (result.candidates?.[0]?.groundingMetadata?.groundingChunks || [])
-        .filter((chunk: any) => chunk.web)
-        .map((chunk: any) => ({ uri: chunk.web.uri, title: chunk.web.title })),
+      articles: data.articles || [],
+      sources: (response.candidates?.[0]?.groundingMetadata?.groundingChunks || [])
+        .filter((c: any) => c.web).map((c: any) => ({ uri: c.web.uri, title: c.web.title })),
       lastUpdated: dateStr
     };
+
   } catch (error: any) {
-    console.error("News Fetch Error:", error);
+    console.error("Client Generation Error:", error);
     throw new Error(error.message);
   }
 };
