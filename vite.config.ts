@@ -7,12 +7,12 @@ export default defineConfig(({ mode }) => {
   
   // Safely retrieve the API key from the loaded env or the process env
   // This prioritizes the variable set in Cloudflare Dashboard
-  const apiKey = env.API_KEY || process.env.API_KEY;
+  const apiKey = env.API_KEY || process.env.API_KEY || "";
 
   return {
     plugins: [react()],
     define: {
-      'process.env.API_KEY': JSON.stringify(apiKey || "")
+      'process.env.API_KEY': JSON.stringify(apiKey)
     },
     build: {
       outDir: 'dist',
