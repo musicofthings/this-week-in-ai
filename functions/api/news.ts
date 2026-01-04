@@ -28,13 +28,25 @@ const extractJson = (text: string) => {
 };
 
 export async function onRequest(context) {
-  const { env } = context;
+  const { env, request } = context;
   const API_KEY = env.API_KEY || env.GEMINI_API_KEY;
 
   if (!API_KEY) {
     return new Response(JSON.stringify({ error: "API Key missing in server configuration." }), {
       status: 200, headers: { "Content-Type": "application/json" }
     });
+  }
+
+  // FIX: Implement Cloudflare Cache API
+  const cacheUrl = new URL(request.url);
+  const cacheKey = new Request(cacheUrl.toString(), request);
+  // Fix: Property 'default' does not exist on type 'CacheStorage'.
+  const cache = (caches as any).default;
+  
+  // Try to find a cached response
+  let response = await cache.match(cacheKey);
+  if (response) {
+    return response;
   }
 
   const ai = new GoogleGenAI({ apiKey: API_KEY });
@@ -50,7 +62,7 @@ export async function onRequest(context) {
     - 'sourceUrl' must be a valid direct URL.`;
 
   try {
-    const response = await ai.models.generateContent({
+    const aiResponse = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
       config: {
@@ -84,15 +96,30 @@ export async function onRequest(context) {
       },
     });
 
-    const rawText = response.text || "";
-
+    const rawText = aiResponse.text || "";
     const data = extractJson(rawText);
-    return new Response(JSON.stringify({
+    
+    const responseData = JSON.stringify({
       articles: data.articles || [],
-      sources: (response.candidates?.[0]?.groundingMetadata?.groundingChunks || [])
+      sources: (aiResponse.candidates?.[0]?.groundingMetadata?.groundingChunks || [])
         .filter((c: any) => c.web).map((c: any) => ({ uri: c.web.uri, title: c.web.title })),
       lastUpdated: dateStr
-    }), { headers: { "Content-Type": "application/json" } });
+    });
+
+    // Create a new response with Cache-Control headers
+    response = new Response(responseData, {
+      headers: {
+        "Content-Type": "application/json",
+        // Cache for 1 hour (3600 seconds)
+        "Cache-Control": "public, max-age=3600"
+      }
+    });
+
+    // Put into cache
+    context.waitUntil(cache.put(cacheKey, response.clone()));
+
+    return response;
+
   } catch (error: any) {
     return new Response(JSON.stringify({ error: error.message }), {
       status: 200, headers: { "Content-Type": "application/json" }

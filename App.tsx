@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchLatestAINews, HISTORICAL_REPORTS } from './services/gemini';
 import { NewsContent, NewsArticle, GroundingSource } from './types';
 import Navbar from './components/Navbar';
@@ -30,6 +30,9 @@ const App: React.FC = () => {
   
   const [userEmail, setUserEmail] = useState<string | null>(localStorage.getItem(USER_KEY));
   const [isSubscribed, setIsSubscribed] = useState<boolean>(localStorage.getItem(SUB_KEY) === 'true');
+
+  // FIX: Initialization lock to prevent double-firing in React StrictMode
+  const initialized = useRef(false);
 
   const saveToCache = useCallback((newContent: NewsContent | null) => {
     const cachedRaw = localStorage.getItem(STORAGE_KEY);
@@ -122,6 +125,10 @@ const App: React.FC = () => {
   }, [news, saveToCache]);
 
   useEffect(() => {
+    // FIX: Strict Mode Guard
+    if (initialized.current) return;
+    initialized.current = true;
+
     const cachedRaw = localStorage.getItem(STORAGE_KEY);
     const lastSync = localStorage.getItem(SYNC_KEY);
     
