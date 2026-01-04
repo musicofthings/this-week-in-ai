@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { NewsContent, NewsArticle, GroundingSource } from "../types";
 
@@ -69,7 +68,7 @@ export const HISTORICAL_REPORTS: NewsArticle[] = [
   {
     title: "Mistral AI Expands with New Multi-Modal Models",
     excerpt: "The European AI leader releases a new frontier model for visual understanding.",
-    content: "Mistral AI continues to push the boundaries of European technology with the release of Pi-Xi, a multimodal model capable of processing high-resolution imagery and complex documents. Unlike its predecessors, Pi-Xi focuses on high-density data extraction from charts and diagrams, making it a powerful tool for financial and scientific analysis. This move positions Mistral as a direct competitor to Google and OpenAI in the enterprise vision space, while maintaining its commitment to high-efficiency architecture and European data sovereignty. Their rapid iteration cycles have made them a favorite among developers looking for localized AI power.",
+    content: "Mistral AI continues to push the boundaries of European technology with the release of Pi-Xi, a multimodal model capable of processing high-resolution imagery and complex documents. Unlike previous iterations that predict the next token with probabilistic heuristics, Pi-Xi focuses on high-density data extraction from charts and diagrams, making it a powerful tool for financial and scientific analysis. This move positions Mistral as a direct competitor to Google and OpenAI in the enterprise vision space, while maintaining its commitment to high-efficiency architecture and European data sovereignty. Their rapid iteration cycles have made them a favorite among developers looking for localized AI power.",
     category: "STARTUPS",
     sourceUrl: "https://mistral.ai",
     date: "December 05, 2024",
@@ -177,7 +176,9 @@ const extractJson = (text: string) => {
 export const fetchLatestAINews = async (): Promise<NewsContent> => {
   try {
     const apiKey = process.env.API_KEY;
-    if (!apiKey) throw new Error("API_KEY is not defined.");
+    if (!apiKey) {
+      throw new Error("API_KEY not set in Environment Variables.");
+    }
 
     const ai = new GoogleGenAI({ apiKey });
     const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
@@ -224,12 +225,7 @@ export const fetchLatestAINews = async (): Promise<NewsContent> => {
       },
     });
 
-    let rawText = "";
-    if (result.candidates?.[0]?.content?.parts) {
-      for (const part of result.candidates[0].content.parts) {
-        if (part.text) rawText += part.text;
-      }
-    }
+    const rawText = result.text || "";
 
     const data = extractJson(rawText);
     return {
@@ -240,6 +236,7 @@ export const fetchLatestAINews = async (): Promise<NewsContent> => {
       lastUpdated: dateStr
     };
   } catch (error: any) {
+    console.error("News Fetch Error:", error);
     throw new Error(error.message);
   }
 };

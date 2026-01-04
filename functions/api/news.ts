@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 
 const extractJson = (text: string) => {
@@ -78,12 +77,8 @@ export async function onRequest(context) {
       },
     });
 
-    let rawText = "";
-    if (response.candidates?.[0]?.content?.parts) {
-      for (const part of response.candidates[0].content.parts) {
-        if (part.text) rawText += part.text;
-      }
-    }
+    const rawText = response.text || "";
+
     const data = extractJson(rawText);
     return new Response(JSON.stringify({
       articles: data.articles || [],
